@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: wallet-payments-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: APP_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wallet-payments-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: wallet-payments-redis
+          type: redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: DEPOSIT_EXPIRY_MINUTES
+        value: 30
+      - key: THROTTLE_TTL_SECONDS
+        value: 60
+      - key: THROTTLE_LIMIT
+        value: 60
+
+  - type: redis
+    name: wallet-payments-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: wallet-payments-db
+    plan: free
