@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -31,7 +31,7 @@ export class WithdrawalsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Check the status of a withdrawal by id' })
-  async getStatus(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  async getStatus(@CurrentUser() user: AuthenticatedUser, @Param('id', new ParseUUIDPipe()) id: string) {
     const record = await this.withdrawalsService.getStatus(id, user.userId);
     if (!record) throw new NotFoundException('Withdrawal not found');
     return record;
