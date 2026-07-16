@@ -80,8 +80,7 @@ npm run start:dev
 ```
 
 Visit `http://localhost:3000/docs` for Swagger. `docker-compose.yml` maps Postgres/Redis to **5433/6380**
-on the host (not 5432/6379) to avoid clashing with any Postgres/Redis you already have running locally —
-adjust `DATABASE_URL`/`REDIS_URL` in `.env` if you change that.
+on the host (not 5432/6379)
 
 ### Environment variables
 
