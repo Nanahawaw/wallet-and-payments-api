@@ -7,9 +7,8 @@ and two requests hitting the same balance at once.
 **Deadline timezone note:** all dates in the brief are treated as **WAT (West Africa Time, UTC+1)**.
 
 - **Repo:** (this repository)
-- **Deployed API:** `<fill in after deploying — see Deployment>`
-- **Swagger docs:** `<deployed-url>/docs` (OpenAPI JSON at `<deployed-url>/docs-json`, importable straight into Postman via *File → Import → Link*)
-- **Health check:** `<deployed-url>/health`
+- **Deployed API:** `https://wallet-payments-api.onrender.com>`
+- **Swagger docs:** `https://wallet-payments-api.onrender.com/docs#/`
 
 ## Stack
 
@@ -23,15 +22,15 @@ and two requests hitting the same balance at once.
 
 ## Data model
 
-| Table | Purpose |
-|---|---|
-| `users` | email, username, bcrypt password hash |
-| `wallets` | one per user, `balance` in kobo (bigint), `CHECK (balance >= 0)` |
-| `ledger_entries` | **append-only** log of every money movement (`DEPOSIT`, `WITHDRAWAL`, `WITHDRAWAL_REVERSAL`, `TRANSFER_IN`, `TRANSFER_OUT`); unique `reference` |
-| `deposit_requests` | one row per deposit attempt, `PENDING → SUCCESS/FAILED/EXPIRED`, unique `reference` |
-| `withdrawal_requests` | one row per withdrawal, `PENDING → PROCESSING → SUCCESS/FAILED`, unique `reference` |
-| `transfer_requests` | one row per wallet-to-wallet transfer, `PROCESSING → SUCCESS/FAILED` |
-| `webhook_events` | dedupe log for inbound Paystack webhooks, unique `dedupe_key` |
+| Table                 | Purpose                                                                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`               | email, username, bcrypt password hash                                                                                                           |
+| `wallets`             | one per user, `balance` in kobo (bigint), `CHECK (balance >= 0)`                                                                                |
+| `ledger_entries`      | **append-only** log of every money movement (`DEPOSIT`, `WITHDRAWAL`, `WITHDRAWAL_REVERSAL`, `TRANSFER_IN`, `TRANSFER_OUT`); unique `reference` |
+| `deposit_requests`    | one row per deposit attempt, `PENDING → SUCCESS/FAILED/EXPIRED`, unique `reference`                                                             |
+| `withdrawal_requests` | one row per withdrawal, `PENDING → PROCESSING → SUCCESS/FAILED`, unique `reference`                                                             |
+| `transfer_requests`   | one row per wallet-to-wallet transfer, `PROCESSING → SUCCESS/FAILED`                                                                            |
+| `webhook_events`      | dedupe log for inbound Paystack webhooks, unique `dedupe_key`                                                                                   |
 
 ## Decisions (ledger/balance modeling)
 
@@ -59,28 +58,13 @@ and two requests hitting the same balance at once.
   `/transaction/verify` endpoint). A reconciliation job sweeps deposits past their expiry, double-checks
   with Paystack once, and marks them `EXPIRED` if still unconfirmed — it never assumes success.
 
-## How the three graded scenarios are handled
-
-1. **Same webhook fired twice** — `POST /webhooks/paystack` inserts a row into `webhook_events` keyed on
-   `(provider, providerTransactionId, event)` *before* doing anything else. The second delivery hits the
-   unique constraint, is logged as a duplicate, and returns `200` without ever reaching the queue. The
-   processor also re-checks the deposit/withdrawal's own status under a row lock before crediting, as a
-   second layer.
-2. **Two concurrent transfer/withdrawal requests against a balance that covers one** — both requests hit
-   the same locked-transaction path described above; exactly one commits, the other gets a clean `422
-   Insufficient wallet balance`. Verified in `test/wallet-integrity.e2e-spec.ts` and manually against the
-   live Paystack sandbox (see Testing).
-3. **A deposit that never gets confirmed** — the wallet is never touched. A repeatable BullMQ job
-   (`deposit-reconciliation`, every 5 min) finds deposits past their `expiresAt`, asks Paystack directly in
-   case the webhook was lost, and marks them `EXPIRED` otherwise.
-
 ## Background jobs (BullMQ + Redis)
 
-| Queue | Trigger | Does |
-|---|---|---|
-| `webhook-processing` | every inbound webhook | parses `charge.success` / `transfer.success` / `transfer.failed` / `transfer.reversed` and applies the ledger effect, with retry + exponential backoff |
-| `withdrawal-processing` | every withdrawal request | calls Paystack's recipient + transfer API; on final failure, reverses the reserved debit |
-| `deposit-reconciliation` | repeatable, every 5 min | sweeps expired pending deposits (see above) |
+| Queue                    | Trigger                  | Does                                                                                                                                                   |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `webhook-processing`     | every inbound webhook    | parses `charge.success` / `transfer.success` / `transfer.failed` / `transfer.reversed` and applies the ledger effect, with retry + exponential backoff |
+| `withdrawal-processing`  | every withdrawal request | calls Paystack's recipient + transfer API; on final failure, reverses the reserved debit                                                               |
+| `deposit-reconciliation` | repeatable, every 5 min  | sweeps expired pending deposits (see above)                                                                                                            |
 
 ## Running locally
 
@@ -101,7 +85,7 @@ adjust `DATABASE_URL`/`REDIS_URL` in `.env` if you change that.
 
 ### Environment variables
 
-See `.env.example` for the full list with defaults. The ones you must supply yourself:
+See `.env.example` for the full list with defaults.
 
 - `PAYSTACK_SECRET_KEY` / `PAYSTACK_PUBLIC_KEY` — from your Paystack dashboard, test mode.
 - `JWT_SECRET` — any long random string.
@@ -110,27 +94,7 @@ See `.env.example` for the full list with defaults. The ones you must supply you
 ### Registering the webhook with Paystack
 
 In the Paystack dashboard (Settings → API Keys & Webhooks), set the webhook URL to
-`<your-base-url>/webhooks/paystack`. Locally, use a tunnel (ngrok, etc.) if you want Paystack's real
-servers to reach you; otherwise you can simulate deliveries directly (see Testing).
-
-## Testing
-
-```bash
-npm run test:e2e
-```
-
-`test/wallet-integrity.e2e-spec.ts` boots the full Nest app against a real Postgres+Redis (stubbing only
-the outbound Paystack HTTP calls, since those depend on Paystack's own sandbox availability) and asserts
-all three graded scenarios directly:
-
-- a webhook delivered twice credits the wallet exactly once,
-- two concurrent transfers against a balance that covers one leave exactly one successful and the
-  balances reconciled,
-- an expired, never-confirmed deposit is marked `EXPIRED` without ever touching the wallet.
-
-These were also exercised manually end-to-end against the **live Paystack test sandbox** (real
-`/transaction/initialize`, a hand-signed `charge.success` webhook replayed twice, real concurrent HTTP
-requests, and a real withdrawal through `/transfer`) before submission.
+`<your-base-url>/webhooks/paystack`.
 
 ## Assumptions
 
@@ -156,7 +120,7 @@ requests, and a real withdrawal through `/transfer`) before submission.
 ## Deployment
 
 Built as a small multi-stage Docker image (see `Dockerfile`). `render.yaml` describes a Render Blueprint
-(web service + managed Postgres + managed Redis) — from the Render dashboard, *New → Blueprint*, point it
+(web service + managed Postgres + managed Redis) — from the Render dashboard, _New → Blueprint_, point it
 at this repo, and set the `sync: false` secrets (`APP_BASE_URL`, `PAYSTACK_SECRET_KEY`,
 `PAYSTACK_PUBLIC_KEY`) once the services exist. Migrations run automatically on boot
 (`migrationsRun: true`), so no separate migration step is needed after each deploy.
